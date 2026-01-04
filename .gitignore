@@ -22,6 +22,8 @@ target/
 docker-compose-dev.yml
 docker-compose2.yml
 V1__init_database.sql
+./certs
+overview.md
 
 ### NetBeans ###
 /nbproject/private/
