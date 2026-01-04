@@ -1,0 +1,20 @@
+package org.fintech.wallet.service;
+
+import org.fintech.wallet.dto.request.KycSubmissionRequest;
+import org.fintech.wallet.dto.response.KycResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
+
+public interface KycService {
+    KycResponse submitKyc(UUID userId, KycSubmissionRequest request,
+                          MultipartFile idDocument,
+                          MultipartFile proofOfAddress,
+                          MultipartFile selfie);
+    KycResponse approveKyc(UUID kycId, UUID adminId);
+    KycResponse rejectKyc(UUID kycId, UUID adminId, String reason);
+    KycResponse getUserKyc(UUID userId);
+    Page<KycResponse> getPendingKyc(Pageable pageable);
+}
