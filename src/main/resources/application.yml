@@ -47,7 +47,7 @@ spring:
 
   data:
     redis:
-      url: ${SPRING_DATA_REDIS_URL}  #${REDIS_URL}   # MUST be supplied via env, e.g. rediss://default:⟨password⟩@⟨endpoint⟩:6379
+      url: ${SPRING_REDIS_URL}  #${REDIS_URL}   # MUST be supplied via env, e.g. rediss://default:⟨password⟩@⟨endpoint⟩:6379
       timeout: 2000ms
 
   kafka:
