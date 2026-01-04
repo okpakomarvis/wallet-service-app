@@ -51,18 +51,18 @@ spring:
       timeout: 2000ms
 
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS} #kafka-wallet-app-okpakomarvis-42c1.b.aivencloud.com:20328
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS} #kafka-wallet-app-okpakomarvis-42c1.b.aivencloud.com:20328
 
     properties:
       # 🔐 AIVEN mTLS
       security.protocol: SSL
 
       ssl.keystore.location: /etc/secrets/client.keystore.p12
-      ssl.keystore.password:
+      ssl.keystore.password: ${KAFKA_SSL_KEYSTORE_PASSWORD}
       ssl.keystore.type: PKCS12
 
       ssl.truststore.location: /etc/secrets/client.truststore.jks
-      ssl.truststore.password:
+      ssl.truststore.password: ${KAFKA_SSL_TRUSTSTORE_PASSWORD}
       ssl.truststore.type: JKS
 
       # Required for Aiven
