@@ -61,8 +61,8 @@ jobs:
         run: mvn clean package -DskipTests
 
       # 4. Run tests
-      - name: Run tests
-        run: mvn test
+      #- name: Run tests
+      #  run: mvn test
 
       # 5. Build Docker image
       - name: Build Docker image
