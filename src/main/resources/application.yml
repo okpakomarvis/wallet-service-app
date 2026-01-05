@@ -168,7 +168,7 @@ logging:
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
     liquibase: DEBUG
     org.springframework.boot.autoconfigure.liquibase: DEBUG
-  #  org.apache.kafka: DEBUG
+    org.apache.kafka: DEBUG
   pattern:
     console: >
       {

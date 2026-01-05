@@ -144,7 +144,7 @@ docker-compose up -d
 ```bash
 export DB_USERNAME=walletuser
 export DB_PASSWORD=walletpass
-export REDIS_PASSWORD=redispass
+export REDIS_PASSWORD=redispass2
 export JWT_SECRET=your-super-secret-256-bit-key-minimum-32-characters-long
 export PAYSTACK_SECRET_KEY=sk_test_xxxxx
 export FLUTTERWAVE_SECRET_KEY=FLWSECK_TEST-xxxxx
