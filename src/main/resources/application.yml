@@ -47,11 +47,11 @@ spring:
 
   data:
     redis:
-      url: ${SPRING_DATA_REDIS_URL}  #${REDIS_URL}   # MUST be supplied via env, e.g. rediss://default:⟨password⟩@⟨endpoint⟩:6379
+      url: ${SPRING_REDIS_URL}  #${REDIS_URL}   # MUST be supplied via env, e.g. rediss://default:⟨password⟩@⟨endpoint⟩:6379
       timeout: 2000ms
 
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS} #kafka-wallet-app-okpakomarvis-42c1.b.aivencloud.com:20328
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS} #kafka-wallet-app-okpakomarvis-42c1.b.aivencloud.com:20328
 
     properties:
       # 🔐 AIVEN mTLS
