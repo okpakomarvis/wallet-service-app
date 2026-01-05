@@ -47,11 +47,11 @@ spring:
 
   data:
     redis:
-      url: ${SPRING_REDIS_URL}  #${REDIS_URL}   # MUST be supplied via env, e.g. rediss://default:⟨password⟩@⟨endpoint⟩:6379
+      url: ${SPRING_REDIS_URL}  #${REDIS_URL} 
       timeout: 2000ms
 
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS} #kafka-wallet-app-okpakomarvis-42c1.b.aivencloud.com:20328
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS} #
 
     properties:
       # 🔐 AIVEN mTLS
@@ -166,9 +166,9 @@ logging:
     org.springframework.security: INFO
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-    liquibase: DEBUG
-    org.springframework.boot.autoconfigure.liquibase: DEBUG
-    org.apache.kafka: DEBUG
+   # liquibase: DEBUG
+  #  org.springframework.boot.autoconfigure.liquibase: DEBUG
+ #   org.apache.kafka: DEBUG
   pattern:
     console: >
       {
