@@ -57,12 +57,12 @@ spring:
       # 🔐 AIVEN mTLS
       security.protocol: SSL
 
-      ssl.keystore.location: /etc/secrets/client.keystore.p12
-      ssl.keystore.password:
+      ssl.keystore.location: /tmp/secrets/client.keystore.p12
+      ssl.keystore.password: ${KAFKA_SSL_KEYSTORE_PASSWOR}
       ssl.keystore.type: PKCS12
 
-      ssl.truststore.location: /etc/secrets/client.truststore.jks
-      ssl.truststore.password:
+      ssl.truststore.location: /tmp/secrets/client.truststore.jks
+      ssl.truststore.password: ${KAFKA_SSL_TRUSTSTORE_PASSWORD}
       ssl.truststore.type: JKS
 
       # Required for Aiven
