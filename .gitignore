@@ -26,6 +26,7 @@ V1__init_database.sql
 ./certs/
 /certs/
 docker-compose.yml
+Dockerfile
 /
 overview.md
 
