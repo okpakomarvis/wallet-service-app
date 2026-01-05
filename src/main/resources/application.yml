@@ -58,7 +58,7 @@ spring:
       security.protocol: SSL
 
       ssl.keystore.location: /tmp/secrets/client.keystore.p12
-      ssl.keystore.password: ${KAFKA_SSL_KEYSTORE_PASSWOR}
+      ssl.keystore.password: ${KAFKA_SSL_KEYSTORE_PASSWORD}
       ssl.keystore.type: PKCS12
 
       ssl.truststore.location: /tmp/secrets/client.truststore.jks
