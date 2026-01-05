@@ -4,6 +4,7 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+
 ### STS ###
 .apt_generated
 .classpath
@@ -22,7 +23,11 @@ target/
 docker-compose-dev.yml
 docker-compose2.yml
 V1__init_database.sql
-./certs
+./certs/
+/certs/
+docker-compose.yml
+Dockerfile
+/
 overview.md
 
 ### NetBeans ###
