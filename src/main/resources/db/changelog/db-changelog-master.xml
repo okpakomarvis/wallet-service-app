@@ -5,13 +5,14 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
-    <!-- Enable UUID extension -->
+    <!-- Enable UUID generation -->
     <changeSet id="1" author="wallet-app">
-        <sql>CREATE EXTENSION IF NOT EXISTS "pgcrypto"</sql>
-        <rollback>DROP EXTENSION IF EXISTS "pgcrypto"</rollback>
+        <sql>CREATE EXTENSION IF NOT EXISTS pgcrypto;</sql>
+        <rollback>DROP EXTENSION IF EXISTS pgcrypto;</rollback>
     </changeSet>
 
-    <!-- Create Users table -->
+    <!-- ================= USERS ================= -->
+
     <changeSet id="2" author="wallet-app">
         <createTable tableName="users">
             <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
@@ -43,7 +44,7 @@
             </column>
             <column name="mfa_secret" type="VARCHAR(32)"/>
             <column name="transaction_pin" type="VARCHAR(100)"/>
-            <column name="created_at" type="TIMESTAMP(6)">
+            <column name="created_at" type="TIMESTAMP(6)" defaultValueComputed="CURRENT_TIMESTAMP">
                 <constraints nullable="false"/>
             </column>
             <column name="updated_at" type="TIMESTAMP(6)"/>
@@ -53,7 +54,6 @@
         </createTable>
     </changeSet>
 
-    <!-- Create indexes on users table -->
     <changeSet id="3" author="wallet-app">
         <createIndex indexName="idx_users_email" tableName="users">
             <column name="email"/>
@@ -66,7 +66,8 @@
         </createIndex>
     </changeSet>
 
-    <!-- Create User Roles table -->
+    <!-- ================= USER ROLES ================= -->
+
     <changeSet id="5" author="wallet-app">
         <createTable tableName="user_roles">
             <column name="user_id" type="UUID">
@@ -79,20 +80,23 @@
     </changeSet>
 
     <changeSet id="6" author="wallet-app">
-        <addPrimaryKey tableName="user_roles" columnNames="user_id, role" constraintName="pk_user_roles"/>
+        <addPrimaryKey tableName="user_roles"
+                       columnNames="user_id, role"
+                       constraintName="pk_user_roles"/>
     </changeSet>
 
     <changeSet id="7" author="wallet-app">
         <addForeignKeyConstraint
                 baseTableName="user_roles"
                 baseColumnNames="user_id"
-                constraintName="fk_user_roles_user"
                 referencedTableName="users"
                 referencedColumnNames="id"
+                constraintName="fk_user_roles_user"
                 onDelete="CASCADE"/>
     </changeSet>
 
-    <!-- Create Wallets table -->
+    <!-- ================= WALLETS ================= -->
+
     <changeSet id="8" author="wallet-app">
         <createTable tableName="wallets">
             <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
@@ -116,7 +120,7 @@
             <column name="status" type="VARCHAR(50)">
                 <constraints nullable="false"/>
             </column>
-            <column name="created_at" type="TIMESTAMP(6)">
+            <column name="created_at" type="TIMESTAMP(6)" defaultValueComputed="CURRENT_TIMESTAMP">
                 <constraints nullable="false"/>
             </column>
             <column name="updated_at" type="TIMESTAMP(6)"/>
@@ -128,9 +132,9 @@
         <addForeignKeyConstraint
                 baseTableName="wallets"
                 baseColumnNames="user_id"
-                constraintName="fk_wallet_user"
                 referencedTableName="users"
                 referencedColumnNames="id"
+                constraintName="fk_wallet_user"
                 onDelete="RESTRICT"/>
     </changeSet>
 
@@ -141,13 +145,8 @@
         </createIndex>
     </changeSet>
 
-    <changeSet id="11" author="wallet-app">
-        <createIndex indexName="idx_wallets_number" tableName="wallets">
-            <column name="wallet_number"/>
-        </createIndex>
-    </changeSet>
+    <!-- ================= LEDGER (IMMUTABLE) ================= -->
 
-    <!-- Create Ledger Entries table (immutable) -->
     <changeSet id="12" author="wallet-app">
         <createTable tableName="ledger_entries">
             <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
@@ -176,43 +175,15 @@
             </column>
             <column name="description" type="VARCHAR(500)"/>
             <column name="external_reference" type="VARCHAR(50)"/>
-            <column name="created_at" type="TIMESTAMP(6)">
+            <column name="created_at" type="TIMESTAMP(6)" defaultValueComputed="CURRENT_TIMESTAMP">
                 <constraints nullable="false"/>
             </column>
             <column name="ip_address" type="VARCHAR(45)"/>
         </createTable>
     </changeSet>
 
-    <changeSet id="13" author="wallet-app">
-        <addForeignKeyConstraint
-                baseTableName="ledger_entries"
-                baseColumnNames="wallet_id"
-                constraintName="fk_ledger_wallet"
-                referencedTableName="wallets"
-                referencedColumnNames="id"
-                onDelete="RESTRICT"/>
-    </changeSet>
+    <!-- ================= TRANSACTIONS ================= -->
 
-    <changeSet id="14" author="wallet-app">
-        <createIndex indexName="idx_ledger_wallet_created" tableName="ledger_entries">
-            <column name="wallet_id"/>
-            <column name="created_at"/>
-        </createIndex>
-    </changeSet>
-
-    <changeSet id="15" author="wallet-app">
-        <createIndex indexName="idx_ledger_transaction_ref" tableName="ledger_entries">
-            <column name="transaction_reference"/>
-        </createIndex>
-    </changeSet>
-
-    <changeSet id="16" author="wallet-app">
-        <createIndex indexName="idx_ledger_idempotency" tableName="ledger_entries">
-            <column name="idempotency_key"/>
-        </createIndex>
-    </changeSet>
-
-    <!-- Create Transactions table -->
     <changeSet id="17" author="wallet-app">
         <createTable tableName="transactions">
             <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
@@ -221,6 +192,7 @@
             <column name="reference" type="VARCHAR(50)">
                 <constraints nullable="false" unique="true"/>
             </column>
+            <column name="user_id" type="UUID"/>
             <column name="source_wallet_id" type="UUID"/>
             <column name="destination_wallet_id" type="UUID"/>
             <column name="type" type="VARCHAR(50)">
@@ -242,7 +214,7 @@
             <column name="payment_gateway" type="VARCHAR(50)"/>
             <column name="ip_address" type="VARCHAR(45)"/>
             <column name="user_agent" type="VARCHAR(500)"/>
-            <column name="created_at" type="TIMESTAMP(6)">
+            <column name="created_at" type="TIMESTAMP(6)" defaultValueComputed="CURRENT_TIMESTAMP">
                 <constraints nullable="false"/>
             </column>
             <column name="updated_at" type="TIMESTAMP(6)"/>
@@ -251,165 +223,60 @@
         </createTable>
     </changeSet>
 
+    <!-- FKs -->
     <changeSet id="18" author="wallet-app">
-        <addForeignKeyConstraint
-                baseTableName="transactions"
-                baseColumnNames="source_wallet_id"
-                constraintName="fk_tx_source_wallet"
-                referencedTableName="wallets"
-                referencedColumnNames="id"
-                onDelete="RESTRICT"/>
+        <addForeignKeyConstraint baseTableName="transactions"
+                                 baseColumnNames="user_id"
+                                 referencedTableName="users"
+                                 referencedColumnNames="id"
+                                 constraintName="fk_tx_user"
+                                 onDelete="SET NULL"/>
     </changeSet>
 
     <changeSet id="19" author="wallet-app">
-        <addForeignKeyConstraint
-                baseTableName="transactions"
-                baseColumnNames="destination_wallet_id"
-                constraintName="fk_tx_dest_wallet"
-                referencedTableName="wallets"
-                referencedColumnNames="id"
-                onDelete="RESTRICT"/>
+        <addForeignKeyConstraint baseTableName="transactions"
+                                 baseColumnNames="source_wallet_id"
+                                 referencedTableName="wallets"
+                                 referencedColumnNames="id"
+                                 constraintName="fk_tx_source_wallet"
+                                 onDelete="SET NULL"/>
     </changeSet>
 
     <changeSet id="20" author="wallet-app">
-        <createIndex indexName="idx_transactions_source" tableName="transactions">
-            <column name="source_wallet_id"/>
-            <column name="created_at"/>
-        </createIndex>
+        <addForeignKeyConstraint baseTableName="transactions"
+                                 baseColumnNames="destination_wallet_id"
+                                 referencedTableName="wallets"
+                                 referencedColumnNames="id"
+                                 constraintName="fk_tx_dest_wallet"
+                                 onDelete="SET NULL"/>
     </changeSet>
 
+    <!-- Indexes -->
     <changeSet id="21" author="wallet-app">
-        <createIndex indexName="idx_transactions_dest" tableName="transactions">
-            <column name="destination_wallet_id"/>
+        <createIndex indexName="idx_tx_user_created" tableName="transactions">
+            <column name="user_id"/>
             <column name="created_at"/>
         </createIndex>
     </changeSet>
 
     <changeSet id="22" author="wallet-app">
-        <createIndex indexName="idx_transactions_ref" tableName="transactions">
-            <column name="reference"/>
+        <createIndex indexName="idx_tx_source_created" tableName="transactions">
+            <column name="source_wallet_id"/>
+            <column name="created_at"/>
         </createIndex>
     </changeSet>
 
     <changeSet id="23" author="wallet-app">
-        <createIndex indexName="idx_transactions_status" tableName="transactions">
-            <column name="status"/>
+        <createIndex indexName="idx_tx_dest_created" tableName="transactions">
+            <column name="destination_wallet_id"/>
             <column name="created_at"/>
         </createIndex>
     </changeSet>
 
-    <!-- Create KYC Verifications table -->
     <changeSet id="24" author="wallet-app">
-        <createTable tableName="kyc_verifications">
-            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="user_id" type="UUID">
-                <constraints nullable="false" unique="true"/>
-            </column>
-            <column name="level" type="VARCHAR(20)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="status" type="VARCHAR(50)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="full_name" type="VARCHAR(100)"/>
-            <column name="id_type" type="VARCHAR(50)"/>
-            <column name="id_number" type="VARCHAR(50)"/>
-            <column name="date_of_birth" type="DATE"/>
-            <column name="nationality" type="VARCHAR(100)"/>
-            <column name="address" type="VARCHAR(500)"/>
-            <column name="city" type="VARCHAR(100)"/>
-            <column name="state" type="VARCHAR(100)"/>
-            <column name="postal_code" type="VARCHAR(20)"/>
-            <column name="country" type="VARCHAR(50)"/>
-            <column name="id_document_url" type="VARCHAR(500)"/>
-            <column name="proof_of_address_url" type="VARCHAR(500)"/>
-            <column name="selfie_url" type="VARCHAR(500)"/>
-            <column name="verification_provider" type="VARCHAR(100)"/>
-            <column name="external_verification_id" type="VARCHAR(100)"/>
-            <column name="verified_at" type="TIMESTAMP(6)"/>
-            <column name="rejection_reason" type="VARCHAR(1000)"/>
-            <column name="reviewed_by" type="UUID"/>
-            <column name="reviewed_at" type="TIMESTAMP(6)"/>
-            <column name="created_at" type="TIMESTAMP(6)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="updated_at" type="TIMESTAMP(6)"/>
-        </createTable>
-    </changeSet>
-
-    <changeSet id="25" author="wallet-app">
-        <addForeignKeyConstraint
-                baseTableName="kyc_verifications"
-                baseColumnNames="user_id"
-                constraintName="fk_kyc_user"
-                referencedTableName="users"
-                referencedColumnNames="id"
-                onDelete="CASCADE"/>
-    </changeSet>
-
-    <changeSet id="26" author="wallet-app">
-        <createIndex indexName="idx_kyc_user" tableName="kyc_verifications">
-            <column name="user_id"/>
-        </createIndex>
-    </changeSet>
-
-    <changeSet id="27" author="wallet-app">
-        <createIndex indexName="idx_kyc_status" tableName="kyc_verifications">
+        <createIndex indexName="idx_tx_status_created" tableName="transactions">
             <column name="status"/>
-        </createIndex>
-    </changeSet>
-
-    <!-- Create Notifications table -->
-    <changeSet id="28" author="wallet-app">
-        <createTable tableName="notifications">
-            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
-                <constraints primaryKey="true" nullable="false"/>
-            </column>
-            <column name="user_id" type="UUID">
-                <constraints nullable="false"/>
-            </column>
-            <column name="type" type="VARCHAR(50)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="title" type="VARCHAR(200)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="message" type="VARCHAR(1000)">
-                <constraints nullable="false"/>
-            </column>
-            <column name="reference_id" type="VARCHAR(100)"/>
-            <column name="is_read" type="BOOLEAN" defaultValueBoolean="false">
-                <constraints nullable="false"/>
-            </column>
-            <column name="read_at" type="TIMESTAMP(6)"/>
-            <column name="created_at" type="TIMESTAMP(6)">
-                <constraints nullable="false"/>
-            </column>
-        </createTable>
-    </changeSet>
-
-    <changeSet id="29" author="wallet-app">
-        <addForeignKeyConstraint
-                baseTableName="notifications"
-                baseColumnNames="user_id"
-                constraintName="fk_notification_user"
-                referencedTableName="users"
-                referencedColumnNames="id"
-                onDelete="CASCADE"/>
-    </changeSet>
-
-    <changeSet id="30" author="wallet-app">
-        <createIndex indexName="idx_notification_user" tableName="notifications">
-            <column name="user_id"/>
             <column name="created_at"/>
-        </createIndex>
-    </changeSet>
-
-    <changeSet id="31" author="wallet-app">
-        <createIndex indexName="idx_notification_read" tableName="notifications">
-            <column name="is_read"/>
         </createIndex>
     </changeSet>
 
