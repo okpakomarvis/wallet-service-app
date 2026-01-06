@@ -7,8 +7,8 @@
 
     <!-- Enable UUID generation -->
     <changeSet id="1" author="wallet-app">
-        <sql>CREATE EXTENSION IF NOT EXISTS pgcrypto;</sql>
-        <rollback>DROP EXTENSION IF EXISTS pgcrypto;</rollback>
+        <sql>CREATE EXTENSION IF NOT EXISTS "pgcrypto"</sql>
+        <rollback>DROP EXTENSION IF EXISTS "pgcrypto"</rollback>
     </changeSet>
 
     <!-- ================= USERS ================= -->
