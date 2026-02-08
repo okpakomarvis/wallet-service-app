@@ -40,9 +40,9 @@ security:
     refresh-expiration: 604800000
 
 cloudinary:
-  cloud-name: dnn2ibecm
-  api-key: 261624129736679
-  api-secret: 9B9_34KSXWzQQu_tOChP2dqYnz4
+  cloud-name: 
+  api-key: 
+  api-secret: 
 
 logging:
   level:
