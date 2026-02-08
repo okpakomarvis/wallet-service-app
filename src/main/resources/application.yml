@@ -7,6 +7,9 @@ spring:
   application:
     name: wallet-service
 
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:prod} # overridden by docker-compose
+
   datasource:
   #  url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:walletdb}
   #  username: ${DB_USERNAME:walletuser}
