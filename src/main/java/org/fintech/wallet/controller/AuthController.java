@@ -10,6 +10,7 @@ import org.fintech.wallet.dto.response.UserResponse;
 import org.fintech.wallet.security.CurrentUser;
 import org.fintech.wallet.service.AuthService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.util.StringUtils;
@@ -21,6 +22,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -38,9 +40,9 @@ public class AuthController {
     public ResponseEntity<ApiResponse<AuthResponse>> register(
             @Valid @RequestBody RegisterRequest request,
             @Parameter(hidden = true) HttpServletRequest httpRequest) {
-
+        String ipAddress = getClientIp(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
-        AuthResponse response = authService.register(request, userAgent);
+        AuthResponse response = authService.register(request, userAgent,ipAddress);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Registration successful", response));
     }
@@ -223,6 +225,25 @@ public class AuthController {
 
         authService.disableMfa(userId);
         return ResponseEntity.ok(ApiResponse.success("MFA disabled", null));
+    }
+    @Operation(
+            summary = "Upload profile picture",
+            description = "Upload or replace profile picture for authenticated user"
+    )
+    @SecurityRequirement(name = "bearerAuth")
+    @PostMapping(
+            value = "/profile/image",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<ApiResponse<UserResponse>> uploadProfileImage(
+            @Parameter(hidden = true) @CurrentUser UUID userId,
+            @RequestPart("image") MultipartFile image
+    ) {
+        UserResponse user = authService.updateProfileImage(userId, image);
+        return ResponseEntity.ok(
+                ApiResponse.success("Profile image updated successfully", user)
+        );
     }
 
     private String getJwtFromRequest(HttpServletRequest request) {

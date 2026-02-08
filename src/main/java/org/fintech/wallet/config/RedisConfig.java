@@ -50,6 +50,7 @@ import io.lettuce.core.RedisURI;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
@@ -57,11 +58,12 @@ import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactor
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
 
+@Profile("prod")
 @Configuration
 public class RedisConfig {
 
     @Value("${spring.data.redis.url}")
-    private String redisUrl; //"rediss://default:ASirAAIncDI4OWMzNzc5MGZkZDU0ZGZmOTc1MWFmOGE4NWU3Nzc3N3AyMTA0MTE@tough-asp-10411.upstash.io:6379";
+    private String redisUrl;
 
     @Bean
     public RedisConnectionFactory redisConnectionFactory() {

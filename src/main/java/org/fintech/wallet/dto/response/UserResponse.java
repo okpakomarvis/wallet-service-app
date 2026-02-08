@@ -22,6 +22,7 @@ public class UserResponse {
     private String firstName;
     private String lastName;
     private String phoneNumber;
+    private String profileImageUrl;
     private UserStatus status;
     private KycStatus kycStatus;
     private Boolean mfaEnabled;

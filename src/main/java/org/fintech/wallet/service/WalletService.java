@@ -13,8 +13,14 @@ public interface WalletService {
     void updateBalance(UUID walletId, BigDecimal amount, boolean isCredit);
     Wallet getWalletByIdWithLock(UUID walletId);
     Wallet getWalletById(UUID walletId);
-    WalletResponse getWalletByNumber(String walletNumber);
+    WalletResponse getWalletByNumberOnly(String walletNumber);
+    WalletResponse getWalletByNumber(String walletNumber, UUID userId);
     List<WalletResponse> getUserWallets(UUID userId);
     void freezeWallet(UUID walletId);
     void unfreezeWallet(UUID walletId);
+    /**
+     * Calculates the total amount the user has transacted today across deposits, withdrawals, and transfers.
+     * Only counts SUCCESS transactions.
+     */
+    BigDecimal getUserDailyTotal(UUID userId);
 }

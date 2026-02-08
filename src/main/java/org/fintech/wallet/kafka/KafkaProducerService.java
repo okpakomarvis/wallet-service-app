@@ -4,10 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.fintech.wallet.dto.event.*;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.CompletableFuture;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -16,105 +15,146 @@ public class KafkaProducerService {
 
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
-    // Transaction Events
+    // =========================
+    // Topics (single source)
+    // =========================
+    public static final String TOPIC_TRANSACTION_EVENTS = "transaction-events";
+    public static final String TOPIC_NOTIFICATION_EVENTS = "notification-events";
+    public static final String TOPIC_KYC_EVENTS = "kyc-events";
+    public static final String TOPIC_AUDIT_LOGS = "audit-logs";
+    public static final String TOPIC_FRAUD_DETECTION = "fraud-detection";
+    public static final String TOPIC_WALLET_EVENTS = "wallet-events";
+
+    // =========================
+    // Public API
+    // =========================
+
     public void publishTransactionEvent(TransactionEvent event) {
-        String topic = "transaction-events";
-        String key = event.getTransactionId().toString();
+        require(event, "TransactionEvent");
+        String key = firstNonBlank(
+                safeUuid(event.getTransactionId()),
+                nullSafe(event.getReference())
+        );
 
-        log.info("Publishing transaction event: {} to topic: {}", key, topic);
-
-        CompletableFuture<SendResult<String, Object>> future =
-                kafkaTemplate.send(topic, key, event);
-
-        future.whenComplete((result, ex) -> {
-            if (ex == null) {
-                log.info("Transaction event published successfully: {} to partition: {}",
-                        key, result.getRecordMetadata().partition());
-            } else {
-                log.error("Failed to publish transaction event: {}", key, ex);
-            }
-        });
+        sendAsync(TOPIC_TRANSACTION_EVENTS, key, event, "transactionEvent");
     }
 
-    // Notification Events
     public void publishNotificationEvent(NotificationEvent event) {
-        String topic = "notification-events";
-        String key = event.getUserId().toString();
+        require(event, "NotificationEvent");
 
-        log.info("Publishing notification event for user: {}", key);
+        // Key by userId so all notifications for same user partition together (ordering)
+        String key = firstNonBlank(
+                safeUuid(event.getUserId()),
+                nullSafe(event.getTitle())
+        );
 
-        kafkaTemplate.send(topic, key, event)
-                .whenComplete((result, ex) -> {
-                    if (ex == null) {
-                        log.info("Notification event published: {}", key);
-                    } else {
-                        log.error("Failed to publish notification event: {}", key, ex);
-                    }
-                });
+        sendAsync(TOPIC_NOTIFICATION_EVENTS, key, event, "notificationEvent");
     }
 
-    // KYC Events
     public void publishKycEvent(KycEvent event) {
-        String topic = "kyc-events";
-        String key = event.getKycId().toString();
+        require(event, "KycEvent");
 
-        log.info("Publishing KYC event: {} - {}", key, event.getAction());
+        String key = firstNonBlank(
+                safeUuid(event.getKycId()),
+                safeUuid(event.getUserId())
+        );
 
-        kafkaTemplate.send(topic, key, event)
-                .whenComplete((result, ex) -> {
-                    if (ex == null) {
-                        log.info("KYC event published: {}", key);
-                    } else {
-                        log.error("Failed to publish KYC event: {}", key, ex);
-                    }
-                });
+        sendAsync(TOPIC_KYC_EVENTS, key, event, "kycEvent");
     }
 
-    // Audit Logs
     public void publishAuditLog(AuditLogEvent event) {
-        String topic = "audit-logs";
-        String key = event.getId().toString();
+        require(event, "AuditLogEvent");
 
-        log.info("Publishing audit log: {} - {}", event.getAction(), event.getEntityType());
+        String key = firstNonBlank(
+                safeUuid(event.getId()),
+                nullSafe(event.getEntityType())
+        );
 
-        kafkaTemplate.send(topic, key, event)
-                .whenComplete((result, ex) -> {
-                    if (ex != null) {
-                        log.error("Failed to publish audit log", ex);
-                    }
-                });
+        sendAsync(TOPIC_AUDIT_LOGS, key, event, "auditLogEvent");
     }
 
-    // Fraud Detection
     public void publishFraudDetectionEvent(FraudDetectionEvent event) {
-        String topic = "fraud-detection";
-        String key = event.getTransactionId().toString();
+        require(event, "FraudDetectionEvent");
 
-        log.warn("Publishing fraud detection event: {} - Risk: {}",
-                key, event.getRiskLevel());
+        String key = firstNonBlank(
+                safeUuid(event.getTransactionId()),
+                nullSafe(event.getRiskLevel() != null ? event.getRiskLevel() : null)
+        );
 
-        kafkaTemplate.send(topic, key, event)
+        sendAsync(TOPIC_FRAUD_DETECTION, key, event, "fraudDetectionEvent");
+    }
+
+    public void publishWalletEvent(WalletEvent event) {
+        require(event, "WalletEvent");
+
+        String key = firstNonBlank(
+                safeUuid(event.getWalletId()),
+                safeUuid(event.getUserId()),
+                nullSafe(event.getAction())
+        );
+
+        sendAsync(TOPIC_WALLET_EVENTS, key, event, "walletEvent");
+    }
+
+    // =========================
+    // Internal send helper
+    // =========================
+
+    private void sendAsync(String topic, String key, Object payload, String label) {
+
+        if (key == null || key.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Kafka key must not be null or blank for topic: " + topic
+            );
+        }
+
+        log.info("Kafka publish [{}]: topic={}, key={}", label, topic, key);
+
+        kafkaTemplate.send(topic, key, payload)
                 .whenComplete((result, ex) -> {
                     if (ex == null) {
-                        log.info("Fraud detection event published: {}", key);
+                        log.info(
+                                "Kafka publish OK [{}]: topic={}, key={}, partition={}, offset={}",
+                                label,
+                                topic,
+                                key,
+                                result.getRecordMetadata().partition(),
+                                result.getRecordMetadata().offset()
+                        );
                     } else {
-                        log.error("Failed to publish fraud detection event: {}", key, ex);
+                        log.error(
+                                "Kafka publish FAILED [{}]: topic={}, key={}",
+                                label,
+                                topic,
+                                key,
+                                ex
+                        );
                     }
                 });
     }
 
-    // Wallet Events
-    public void publishWalletEvent(WalletEvent event) {
-        String topic = "wallet-events";
-        String key = event.getWalletId().toString();
+    // =========================
+    // Small helpers
+    // =========================
 
-        log.info("Publishing wallet event: {} - {}", key, event.getAction());
+    private static void require(Object o, String name) {
+        if (o == null) throw new IllegalArgumentException(name + " must not be null");
+    }
 
-        kafkaTemplate.send(topic, key, event)
-                .whenComplete((result, ex) -> {
-                    if (ex != null) {
-                        log.error("Failed to publish wallet event: {}", key, ex);
-                    }
-                });
+    private static String safeUuid(Object id) {
+        if (id == null) return null;
+        if (id instanceof UUID uuid) return uuid.toString();
+        return String.valueOf(id);
+    }
+
+    private static String nullSafe(String s) {
+        return (s == null || s.isBlank()) ? null : s;
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) return v;
+        }
+        return null;
     }
 }

@@ -21,6 +21,7 @@ public enum NotificationType {
     TRANSFER_SENT,
     TRANSFER_RECEIVED,
     TRANSFER_FAILED,
+    TRANSFER_PENDING,
 
     // KYC notifications
     KYC_SUBMITTED,
@@ -57,5 +58,8 @@ public enum NotificationType {
     SYSTEM_MAINTENANCE,
     SYSTEM_UPDATE,
     PROMOTIONAL,
-    ANNOUNCEMENT
+    ANNOUNCEMENT,
+    // Security notifications
+    LOGIN_DETECTED,
+
 }
