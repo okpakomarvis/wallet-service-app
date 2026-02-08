@@ -11,7 +11,12 @@ spring:
     active: ${SPRING_PROFILES_ACTIVE:prod} # overridden by docker-compose
 
   datasource:
+  #  url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:walletdb}
+  #  username: ${DB_USERNAME:walletuser}
+  #  password: ${DB_PASSWORD:walletpass}
+    url: ${SPRING_DATASOURCE_URL}
     driver-class-name: org.postgresql.Driver
+
     hikari:
       pool-name: WalletHikariPool
       maximum-pool-size: 5
@@ -21,21 +26,20 @@ spring:
       connection-timeout: 30000
       leak-detection-threshold: 20000
 
-  jpa:
-    hibernate:
-      ddl-auto: none
-    open-in-view: false
-    properties:
+    jpa:
       hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-        jdbc:
-          time_zone: UTC
-  flyway:
+        ddl-auto: validate
+      open-in-view: false
+      properties:
+        hibernate:
+          dialect: org.hibernate.dialect.PostgreSQLDialect
+          format_sql: false
+          jdbc:
+            time_zone: UTC
+
+  liquibase:
     enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true
-    schemas: public
-    clean-disabled: true
+    change-log: classpath:db/changelog/db-changelog-master.xml
 
   redis:
     lettuce:
@@ -44,24 +48,43 @@ spring:
         max-idle: 8
         min-idle: 2
 
-
+  data:
+    redis:
+      url: ${SPRING_REDIS_URL}  #${REDIS_URL}   # MUST be supplied via env, e.g. rediss://default:⟨password⟩@⟨endpoint⟩:6379
+      timeout: 2000ms
 
   kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS} #kafka-wallet-app-okpakomarvis-42c1.b.aivencloud.com:20328
+
+    properties:
+      # 🔐 AIVEN mTLS
+      security.protocol: SSL
+
+      ssl.keystore.location: /certs/client.keystore.p12
+      ssl.keystore.password:
+      ssl.keystore.type: PKCS12
+
+      ssl.truststore.location: /certs/client.truststore.jks
+      ssl.truststore.password:
+      ssl.truststore.type: JKS
+
+      # Required for Aiven
+      ssl.endpoint.identification.algorithm: ""
+
     consumer:
-   #   auto-offset-reset: earliest
-  #    enable-auto-commit: false
-  #    key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-   #   value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      group-id: wallet-service-group
+      auto-offset-reset: earliest
+      enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
       properties:
-        spring.json.trusted.packages: org.fintech.wallet.dto.event
-
+        spring.json.trusted.packages: "com.fintech.wallet.*"
+        spring.json.use.type.headers: false
 
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-
+      acks: all
 
   servlet:
     multipart:
@@ -86,6 +109,11 @@ spring:
             enable: true
             required: true
 
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration: 3600000
+    refresh-expiration: 604800000
 
 payment:
   paystack:
@@ -118,7 +146,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: prometheus,health,info
+        include: "prometheus,health,info"
 
   endpoint:
     health:
@@ -127,50 +155,60 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
-  email:
-    enabled: ${EMAIL_ENABLED:false}
-    from: noreply@yourwallet.com
 
-  sms:
-    enabled: ${SMS_ENABLED:false}
-    provider: TWILIO
-    twilio:
-      account-sid: ${TWILIO_ACCOUNT_SID}
-      auth-token: ${TWILIO_AUTH_TOKEN}
-      from-number: ${TWILIO_FROM_NUMBER}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+      enable:
+        all: true
 
-  push:
-    enabled: ${PUSH_ENABLED:false}
-    fcm:
-      server-key: ${FCM_SERVER_KEY}
+logging:
+  level:
+    com.fintech.wallet: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    liquibase: DEBUG
+    org.springframework.boot.autoconfigure.liquibase: DEBUG
+  #  org.apache.kafka: DEBUG
+  pattern:
+    console: >
+      {
+        "timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
+        "level":"%level",
+        "service":"${spring.application.name}",
+        "traceId":"%X{traceId:-}",
+        "spanId":"%X{spanId:-}",
+        "thread":"%thread",
+        "logger":"%logger{36}",
+        "message":"%msg"
+      }%n
+#  pattern:
+#    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+#    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
 
-  springdoc:
-    packages-to-scan: org.fintech.wallet.controller
+#  file:
+#    name: logs/wallet-service.log
+#    max-size: 10MB
+#    max-history: 30
 
+email:
+  enabled: ${EMAIL_ENABLED:false}
+  from: noreply@yourwallet.com
 
-    prometheus:
-      metrics:
-        export:
-          enabled: true
-        enable:
-          all: true
+sms:
+  enabled: ${SMS_ENABLED:false}
+  provider: TWILIO
+  twilio:
+    account-sid: ${TWILIO_ACCOUNT_SID}
+    auth-token: ${TWILIO_AUTH_TOKEN}
+    from-number: ${TWILIO_FROM_NUMBER}
 
-  logging:
-    level:
-      com.fintech.wallet: INFO
-    #  org.apache.kafka: DEBUG
-    pattern:
-      console: >
-        {
-          "timestamp":"%d{yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
-          "level":"%level",
-          "service":"${spring.application.name}",
-          "traceId":"%X{traceId:-}",
-          "spanId":"%X{spanId:-}",
-          "thread":"%thread",
-          "logger":"%logger{36}",
-          "message":"%msg"
-        }%n
+push:
+  enabled: ${PUSH_ENABLED:false}
+  fcm:
+    server-key: ${FCM_SERVER_KEY}
 
 springdoc:
   packages-to-scan: org.fintech.wallet.controller
