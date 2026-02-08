@@ -83,4 +83,16 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     @Query("SELECT COUNT(n) FROM Notification n WHERE n.user.id = :userId " +
             "AND n.createdAt > :since")
     long countByUserIdSince(@Param("userId") UUID userId, @Param("since") LocalDateTime since);
+
+    long countByUserId(UUID userId);
+
+    boolean existsByUserIdAndTypeAndReferenceId(UUID userId, NotificationType type, String referenceId);
+
+    java.util.Optional<Notification> findFirstByUserIdAndTypeAndReferenceIdOrderByCreatedAtDesc(
+            UUID userId, NotificationType type, String referenceId
+    );
+
+    @org.springframework.data.jpa.repository.Modifying
+    @org.springframework.data.jpa.repository.Query("DELETE FROM Notification n WHERE n.user.id = :userId")
+    int deleteByUserId(@org.springframework.data.repository.query.Param("userId") UUID userId);
 }

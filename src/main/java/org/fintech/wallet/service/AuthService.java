@@ -3,11 +3,12 @@ package org.fintech.wallet.service;
 import org.fintech.wallet.dto.request.*;
 import org.fintech.wallet.dto.response.AuthResponse;
 import org.fintech.wallet.dto.response.UserResponse;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 
 public interface AuthService {
-    AuthResponse register(RegisterRequest request, String userAgent);
+    AuthResponse register(RegisterRequest request, String userAgent,String ipAddress);
     AuthResponse login(LoginRequest request, String ipAddress, String userAgent);
     AuthResponse refreshToken(String refreshToken, String userAgent);
     void changePassword(UUID userId, ChangePasswordRequest request);
@@ -20,5 +21,6 @@ public interface AuthService {
     UserResponse updateProfile(UUID userId, UpdateProfileRequest request);
     void logout(UUID userId, String accessToken);
     void logoutAllDevices(UUID userId);
+    UserResponse updateProfileImage(UUID userId, MultipartFile image);
 
 }

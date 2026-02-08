@@ -1,5 +1,7 @@
 package org.fintech.wallet.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.fintech.wallet.domain.entity.Notification;
@@ -14,24 +16,19 @@ import org.fintech.wallet.dto.response.NotificationStatsResponse;
 import org.fintech.wallet.repository.NotificationRepository;
 import org.fintech.wallet.repository.UserRepository;
 import org.fintech.wallet.service.NotificationService;
+import org.fintech.wallet.service.realtime.NotificationRealtimePublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.databind.ObjectMapper;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
-
-import static org.fintech.wallet.domain.enums.NotificationChannel.*;
 
 @Service
 @RequiredArgsConstructor
@@ -40,15 +37,17 @@ public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
-    private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ObjectMapper objectMapper;
-    // private final EmailService emailService;
-    // private final SmsService smsService;
-    // private final PushNotificationService pushService;
 
-    // =========================================================================
-    // SEND NOTIFICATIONS
-    // =========================================================================
+    private final NotificationAsyncDispatcher asyncDispatcher;
+    private final NotificationRealtimePublisher realtimePublisher;
+
+    /**
+     * SEND NOTIFICATIONS
+     * @param request
+     * @return
+     */
+
     @Override
     @Transactional
     public NotificationResponse sendNotification(SendNotificationRequest request) {
@@ -58,10 +57,37 @@ public class NotificationServiceImpl implements NotificationService {
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new RuntimeException("User not found"));
 
+        // DEDUPE (important for Kafka retries): if same type+referenceId already exists, return latest
+        if (request.getReferenceId() != null && !request.getReferenceId().isBlank()) {
+            boolean exists = notificationRepository.existsByUserIdAndTypeAndReferenceId(
+                    request.getUserId(), request.getType(), request.getReferenceId()
+            );
+            if (exists) {
+                Notification existing = notificationRepository
+                        .findFirstByUserIdAndTypeAndReferenceIdOrderByCreatedAtDesc(
+                                request.getUserId(), request.getType(), request.getReferenceId()
+                        )
+                        .orElse(null);
+
+                if (existing != null) {
+                    log.info("Dedupe hit: returning existing notification id={}", existing.getId());
+                    return mapToResponse(existing);
+                }
+            }
+        }
+
         String metadataJson = null;
         if (request.getMetadata() != null) {
-            metadataJson = objectMapper.writeValueAsString(request.getMetadata());
+            try {
+                metadataJson = objectMapper.writeValueAsString(request.getMetadata());
+            } catch (Exception e) {
+                log.warn("Failed to serialize notification metadata. Dropping metadata. user={}, type={}",
+                        request.getUserId(), request.getType(), e);
+            }
         }
+
+        NotificationChannel channel = request.getChannel() != null ? request.getChannel() : NotificationChannel.ALL;
+        NotificationPriority priority = request.getPriority() != null ? request.getPriority() : NotificationPriority.MEDIUM;
 
         Notification notification = Notification.builder()
                 .user(user)
@@ -69,8 +95,8 @@ public class NotificationServiceImpl implements NotificationService {
                 .title(request.getTitle())
                 .message(request.getMessage())
                 .referenceId(request.getReferenceId())
-                .channel(request.getChannel())
-                .priority(request.getPriority())
+                .channel(channel)
+                .priority(priority)
                 .isRead(false)
                 .isSent(false)
                 .metadata(metadataJson)
@@ -79,12 +105,28 @@ public class NotificationServiceImpl implements NotificationService {
 
         notification = notificationRepository.save(notification);
 
-        // Send via appropriate channel(s) asynchronously
-        sendViaChannel(notification, user);
+        // Dispatch external channels asynchronously (IMPORTANT: @Async must be in a different bean)
+        asyncDispatcher.dispatch(notification.getId());
+
+        // Realtime push AFTER COMMIT to avoid “ghost notifications”
+        final UUID savedNotificationId = notification.getId();
+        final UUID savedUserId = user.getId();
+
+        runAfterCommit(() -> {
+            try {
+                Notification saved = notificationRepository.findById(savedNotificationId).orElse(null);
+                if (saved != null) {
+                    realtimePublisher.publishNew(savedUserId, mapToResponse(saved));
+                }
+            } catch (Exception e) {
+                log.error("Realtime publish failed for notification={}", savedNotificationId, e);
+            }
+        });
 
         log.info("Notification created: id={}", notification.getId());
         return mapToResponse(notification);
     }
+
     @Override
     @Transactional
     public NotificationResponse sendNotification(UUID userId, NotificationType type,
@@ -100,26 +142,23 @@ public class NotificationServiceImpl implements NotificationService {
                 .priority(NotificationPriority.MEDIUM)
                 .build());
     }
+
     @Override
     @Transactional
     public List<NotificationResponse> sendBulkNotification(BulkNotificationRequest request) {
         log.info("Sending bulk notification to {} users", request.getUserIds().size());
 
         List<NotificationResponse> responses = new ArrayList<>();
-
         for (UUID userId : request.getUserIds()) {
             try {
-                NotificationResponse response = sendNotification(
-                        SendNotificationRequest.builder()
-                                .userId(userId)
-                                .type(request.getType())
-                                .title(request.getTitle())
-                                .message(request.getMessage())
-                                .channel(request.getChannel())
-                                .priority(request.getPriority())
-                                .build()
-                );
-                responses.add(response);
+                responses.add(sendNotification(SendNotificationRequest.builder()
+                        .userId(userId)
+                        .type(request.getType())
+                        .title(request.getTitle())
+                        .message(request.getMessage())
+                        .channel(request.getChannel())
+                        .priority(request.getPriority())
+                        .build()));
             } catch (Exception e) {
                 log.error("Failed to send notification to user: {}", userId, e);
             }
@@ -127,77 +166,15 @@ public class NotificationServiceImpl implements NotificationService {
 
         log.info("Bulk notification completed: sent {} of {} notifications",
                 responses.size(), request.getUserIds().size());
-
         return responses;
     }
 
-    @Async
-    protected void sendViaChannel(Notification notification, User user) {
-        try {
-            switch (notification.getChannel()) {
-                case IN_APP:
-                    // Already saved in database
-                    markAsSent(notification.getId());
-                    break;
-
-                case EMAIL:
-                    sendEmailNotification(notification, user);
-                    break;
-
-                case SMS:
-                    sendSmsNotification(notification, user);
-                    break;
-
-                case PUSH:
-                    sendPushNotification(notification, user);
-                    break;
-
-                case ALL:
-                    sendEmailNotification(notification, user);
-                    sendSmsNotification(notification, user);
-                    sendPushNotification(notification, user);
-                    markAsSent(notification.getId());
-                    break;
-            }
-
-            // Publish to Kafka for analytics
-            publishNotificationEvent(notification);
-
-        } catch (Exception e) {
-            log.error("Failed to send notification via channel: {}",
-                    notification.getChannel(), e);
-            incrementRetryCount(notification.getId(), e.getMessage());
-        }
-    }
-
-    private void sendEmailNotification(Notification notification, User user) {
-        log.info("Sending email notification to: {}", user.getEmail());
-        // emailService.sendEmail(user.getEmail(), notification.getTitle(), notification.getMessage());
-        markAsSent(notification.getId());
-    }
-
-    private void sendSmsNotification(Notification notification, User user) {
-        if (user.getPhoneNumber() != null) {
-            log.info("Sending SMS notification to: {}", user.getPhoneNumber());
-            // smsService.sendSms(user.getPhoneNumber(), notification.getMessage());
-            markAsSent(notification.getId());
-        }
-    }
-
-    private void sendPushNotification(Notification notification, User user) {
-        log.info("Sending push notification to user: {}", user.getId());
-        // pushService.sendPushNotification(user.getId(), notification.getTitle(), notification.getMessage());
-        markAsSent(notification.getId());
-    }
-
     /**
-     *
+     * READ NOTIFICATIONS
      * @param userId
      * @param pageable
      * @return
      */
-    // READ NOTIFICATIONS
-
 
     @Override
     @Transactional(readOnly = true)
@@ -205,17 +182,17 @@ public class NotificationServiceImpl implements NotificationService {
         return notificationRepository.findByUserIdOrderByCreatedAtDesc(userId, pageable)
                 .map(this::mapToResponse);
     }
+
     @Override
     @Transactional(readOnly = true)
     public Page<NotificationResponse> getUnreadNotifications(UUID userId, Pageable pageable) {
         return notificationRepository.findByUserIdAndIsReadFalseOrderByCreatedAtDesc(userId, pageable)
                 .map(this::mapToResponse);
     }
+
     @Override
     @Transactional(readOnly = true)
-    public Page<NotificationResponse> getNotificationsByType(UUID userId,
-                                                             NotificationType type,
-                                                             Pageable pageable) {
+    public Page<NotificationResponse> getNotificationsByType(UUID userId, NotificationType type, Pageable pageable) {
         return notificationRepository.findByUserIdAndTypeOrderByCreatedAtDesc(userId, type, pageable)
                 .map(this::mapToResponse);
     }
@@ -231,7 +208,7 @@ public class NotificationServiceImpl implements NotificationService {
     public NotificationStatsResponse getNotificationStats(UUID userId) {
         log.info("Fetching notification statistics for user: {}", userId);
 
-        long totalNotifications = notificationRepository.count();
+        long totalNotifications = notificationRepository.countByUserId(userId);
         long unreadCount = notificationRepository.countByUserIdAndIsRead(userId, false);
         long readCount = notificationRepository.countByUserIdAndIsRead(userId, true);
 
@@ -242,7 +219,6 @@ public class NotificationServiceImpl implements NotificationService {
         long todayCount = notificationRepository.countByUserIdSince(userId, startOfDay);
         long thisWeekCount = notificationRepository.countByUserIdSince(userId, startOfWeek);
 
-        // Get count by type
         List<Object[]> typeStats = notificationRepository.countByTypeForUser(userId);
         Map<NotificationType, Long> countByType = typeStats.stream()
                 .collect(Collectors.toMap(
@@ -250,11 +226,11 @@ public class NotificationServiceImpl implements NotificationService {
                         arr -> (Long) arr[1]
                 ));
 
-        // Get latest notification
         Page<Notification> latest = notificationRepository
                 .findByUserIdOrderByCreatedAtDesc(userId, PageRequest.of(0, 1));
-        LocalDateTime lastNotificationAt = latest.hasContent() ?
-                latest.getContent().get(0).getCreatedAt() : null;
+        LocalDateTime lastNotificationAt = latest.hasContent()
+                ? latest.getContent().get(0).getCreatedAt()
+                : null;
 
         return NotificationStatsResponse.builder()
                 .totalNotifications(totalNotifications)
@@ -268,10 +244,9 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     /**
-     *
+     * MANAGE NOTIFICATIONS
      * @param notificationId
      */
-    // MANAGE NOTIFICATIONS
 
     @Override
     @Transactional
@@ -283,6 +258,10 @@ public class NotificationServiceImpl implements NotificationService {
             notification.setIsRead(true);
             notification.setReadAt(LocalDateTime.now());
             notificationRepository.save(notification);
+
+            UUID userId = notification.getUser().getId();
+            runAfterCommit(() -> realtimePublisher.publishUnreadCount(userId));
+
             log.info("Notification marked as read: {}", notificationId);
         }
     }
@@ -296,6 +275,10 @@ public class NotificationServiceImpl implements NotificationService {
         notification.setIsRead(false);
         notification.setReadAt(null);
         notificationRepository.save(notification);
+
+        UUID userId = notification.getUser().getId();
+        runAfterCommit(() -> realtimePublisher.publishUnreadCount(userId));
+
         log.info("Notification marked as unread: {}", notificationId);
     }
 
@@ -303,6 +286,9 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public int markAllAsRead(UUID userId) {
         int count = notificationRepository.markAllAsReadByUserId(userId, LocalDateTime.now());
+
+        runAfterCommit(() -> realtimePublisher.publishUnreadCount(userId));
+
         log.info("Marked {} notifications as read for user: {}", count, userId);
         return count;
     }
@@ -310,17 +296,27 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional
     public void deleteNotification(UUID notificationId) {
-        notificationRepository.deleteById(notificationId);
+        Notification notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new RuntimeException("Notification not found"));
+
+        UUID userId = notification.getUser().getId();
+        notificationRepository.delete(notification);
+
+        runAfterCommit(() -> {
+            realtimePublisher.publishDeleted(userId, notificationId);
+            realtimePublisher.publishUnreadCount(userId);
+        });
+
         log.info("Notification deleted: {}", notificationId);
     }
 
     @Override
     @Transactional
     public void deleteAllNotifications(UUID userId) {
-        Page<Notification> notifications = notificationRepository
-                .findByUserIdOrderByCreatedAtDesc(userId, Pageable.unpaged());
+        notificationRepository.deleteByUserId(userId);
 
-        notificationRepository.deleteAll(notifications);
+        runAfterCommit(() -> realtimePublisher.publishUnreadCount(userId));
+
         log.info("All notifications deleted for user: {}", userId);
     }
 
@@ -334,42 +330,19 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     /**
-     *
-     * @param notificationId
+     * MAPPING
+     * @param notification
+     * @return
      */
-    // HELPER METHODS
-
-    @Transactional
-    protected void markAsSent(UUID notificationId) {
-        notificationRepository.findById(notificationId).ifPresent(notification -> {
-            notification.setIsSent(true);
-            notification.setSentAt(LocalDateTime.now());
-            notificationRepository.save(notification);
-        });
-    }
-
-    @Transactional
-    protected void incrementRetryCount(UUID notificationId, String errorMessage) {
-        notificationRepository.findById(notificationId).ifPresent(notification -> {
-            notification.setRetryCount(notification.getRetryCount() + 1);
-            notification.setErrorMessage(errorMessage);
-            notificationRepository.save(notification);
-        });
-    }
-
-    private void publishNotificationEvent(Notification notification) {
-        try {
-            kafkaTemplate.send("notification-events", notification.getId().toString(),
-                    mapToResponse(notification));
-        } catch (Exception e) {
-            log.error("Failed to publish notification event", e);
-        }
-    }
 
     private NotificationResponse mapToResponse(Notification notification) {
         Map<String, Object> metadata = null;
         if (notification.getMetadata() != null) {
-            metadata = objectMapper.readValue(notification.getMetadata(), Map.class);
+            try {
+                metadata = objectMapper.readValue(notification.getMetadata(), new TypeReference<Map<String, Object>>() {});
+            } catch (Exception e) {
+                log.warn("Failed to parse notification metadata. id={}", notification.getId(), e);
+            }
         }
 
         return NotificationResponse.builder()
@@ -385,5 +358,15 @@ public class NotificationServiceImpl implements NotificationService {
                 .readAt(notification.getReadAt())
                 .metadata(metadata)
                 .build();
+    }
+
+    private void runAfterCommit(Runnable task) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override public void afterCommit() { task.run(); }
+            });
+        } else {
+            task.run();
+        }
     }
 }

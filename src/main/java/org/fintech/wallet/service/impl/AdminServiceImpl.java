@@ -677,6 +677,7 @@ public class AdminServiceImpl implements AdminService {
                 .lastName(user.getLastName())
                 .phoneNumber(user.getPhoneNumber())
                 .status(user.getStatus())
+                .profileImageUrl(user.getProfileImageUrl())
                 .kycStatus(user.getKycStatus())
                 .mfaEnabled(user.getMfaEnabled())
                 .roles(user.getRoles())

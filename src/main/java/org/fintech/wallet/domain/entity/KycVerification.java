@@ -12,10 +12,20 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "kyc_verifications", indexes = {
-        @Index(name = "idx_kyc_user", columnList = "user_id"),
-        @Index(name = "idx_kyc_status", columnList = "status")
-})
+@Table(
+        name = "kyc_verifications",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_user_kyc_level",
+                        columnNames = {"user_id", "level"}
+                )
+        },
+        indexes = {
+                @Index(name = "idx_kyc_user", columnList = "user_id"),
+                @Index(name = "idx_kyc_status", columnList = "status"),
+                @Index(name = "idx_kyc_level", columnList = "level")
+        }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -27,24 +37,41 @@ public class KycVerification {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @OneToOne
-    @JoinColumn(name = "user_id", nullable = false, unique = true)
+    /**
+     * One user can have MULTIPLE KYC records
+     * (one per level: TIER_1, TIER_2, TIER_3)
+     */
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    /**
+     * KYC tier this verification is for
+     */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
-    private KycLevel level; // TIER_1, TIER_2, TIER_3
+    @Column(nullable = false, length = 20)
+    private KycLevel level;
 
+    /**
+     * PENDING, VERIFIED, REJECTED
+     */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false)
+    @Column(nullable = false, length = 20)
     private KycStatus status;
 
-    // Personal Information
+    /* =========================
+       PERSONAL INFORMATION
+       ========================= */
+
     @Column(length = 100)
     private String fullName;
 
+    /**
+     * PASSPORT, DRIVERS_LICENSE, NATIONAL_ID
+     * (Optional — depends on tier policy)
+     */
     @Column(length = 50)
-    private String idType; // PASSPORT, DRIVERS_LICENSE, NATIONAL_ID
+    private String idType;
 
     @Column(length = 50)
     private String idNumber;
@@ -54,7 +81,10 @@ public class KycVerification {
     @Column(length = 100)
     private String nationality;
 
-    // Address Information
+    /* =========================
+       ADDRESS INFORMATION
+       ========================= */
+
     @Column(length = 500)
     private String address;
 
@@ -70,7 +100,10 @@ public class KycVerification {
     @Column(length = 50)
     private String country;
 
-    // Document URLs (stored Cloudinary URLs)
+    /* =========================
+       DOCUMENT URLs (Cloudinary)
+       ========================= */
+
     @Column(length = 500)
     private String idDocumentUrl;
 
@@ -80,9 +113,37 @@ public class KycVerification {
     @Column(length = 500)
     private String selfieUrl;
 
-    // Verification Details
+    /* =========================
+       CLOUDINARY METADATA
+       ========================= */
+
+    @Column(length = 300)
+    private String idDocumentPublicId;
+
+    @Column(length = 300)
+    private String proofOfAddressPublicId;
+
+    @Column(length = 300)
+    private String selfiePublicId;
+
+    @Column(length = 30)
+    private String idDocumentResourceType;
+
+    @Column(length = 30)
+    private String proofOfAddressResourceType;
+
+    @Column(length = 30)
+    private String selfieResourceType;
+
+    /* =========================
+       VERIFICATION DETAILS
+       ========================= */
+
+    /**
+     * Manual, Smile Identity, VerifyMe, etc.
+     */
     @Column(length = 100)
-    private String verificationProvider; // ( e.g Smile Identity, Verify.me)
+    private String verificationProvider;
 
     @Column(length = 100)
     private String externalVerificationId;
@@ -97,6 +158,10 @@ public class KycVerification {
 
     private LocalDateTime reviewedAt;
 
+    /* =========================
+       AUDIT
+       ========================= */
+
     @CreationTimestamp
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -104,4 +169,3 @@ public class KycVerification {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 }
-

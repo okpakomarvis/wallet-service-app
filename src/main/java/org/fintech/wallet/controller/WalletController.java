@@ -67,7 +67,7 @@ public class WalletController {
             @Parameter(hidden = true) @CurrentUser UUID userId,
             @Parameter(description = "Wallet number") @PathVariable String walletNumber) {
 
-        WalletResponse wallet = walletService.getWalletByNumber(walletNumber);
+        WalletResponse wallet = walletService.getWalletByNumber(walletNumber, userId);
         return ResponseEntity.ok(ApiResponse.success(wallet));
     }
 

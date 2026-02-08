@@ -1,0 +1,53 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL}
+
+  redis:
+    data:
+      redis:
+        url: ${SPRING_REDIS_URL}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
+
+    properties:
+      security.protocol: SSL
+      ssl.keystore.location: /certs/client.keystore.p12
+      ssl.keystore.password: ${KAFKA_KEYSTORE_PASSWORD}
+      ssl.keystore.type: PKCS12
+
+      ssl.truststore.location: /certs/client.truststore.jks
+      ssl.truststore.password: ${KAFKA_TRUSTSTORE_PASSWORD}
+      ssl.truststore.type: JKS
+
+      ssl.endpoint.identification.algorithm: ""
+
+    consumer:
+      group-id: wallet-service-group
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JsonDeserializer
+        spring.json.trusted.packages: org.fintech.wallet.dto.event
+        spring.json.value.default.type: org.fintech.wallet.dto.event.WalletEvent
+        spring.json.use.type.headers: false
+
+
+security:
+  jwt:
+    secret: ${JWT_SECRET}
+    expiration: 3600000
+    refresh-expiration: 604800000
+
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
+
+logging:
+  level:
+    com.fintech.wallet: INFO
+

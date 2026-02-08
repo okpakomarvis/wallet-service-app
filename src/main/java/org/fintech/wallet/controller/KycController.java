@@ -8,16 +8,20 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.fintech.wallet.dto.request.KycSubmissionRequest;
+import org.fintech.wallet.dto.request.KycTierDto;
 import org.fintech.wallet.dto.response.ApiResponse;
 import org.fintech.wallet.dto.response.KycResponse;
+import org.fintech.wallet.dto.response.UserKycStatusResponse;
 import org.fintech.wallet.security.CurrentUser;
 import org.fintech.wallet.service.KycService;
+import org.fintech.wallet.service.impl.KycTierService;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -28,51 +32,84 @@ import java.util.UUID;
 public class KycController {
 
     private final KycService kycService;
+    private final KycTierService kycTierService;
 
+    /**
+     * Submit KYC with documents.
+     * - Documents are uploaded to Cloudinary inside KycService (storage concern stays out of controller)
+     * - Controller stays thin: HTTP mapping only
+     */
     @Operation(
             summary = "Submit KYC",
             description = "Submit KYC information and required documents for verification"
     )
-    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(
+            value = "",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<ApiResponse<KycResponse>> submitKyc(
             @Parameter(hidden = true) @CurrentUser UUID userId,
+
+            // Form fields
             @ModelAttribute KycSubmissionRequest request,
+
+            // Files
             @Parameter(
                     description = "Government issued ID document",
                     content = @Content(schema = @Schema(type = "string", format = "binary"))
             )
-            @RequestParam("idDocument") MultipartFile idDocument,
+            @RequestPart("idDocument") MultipartFile idDocument,
+
             @Parameter(
                     description = "Proof of address document",
                     content = @Content(schema = @Schema(type = "string", format = "binary"))
             )
-            @RequestParam("proofOfAddress") MultipartFile proofOfAddress,
+            @RequestPart("proofOfAddress") MultipartFile proofOfAddress,
+
             @Parameter(
                     description = "User selfie image",
                     content = @Content(schema = @Schema(type = "string", format = "binary"))
             )
-            @RequestParam("selfie") MultipartFile selfie) {
-
-        KycResponse kyc = kycService.submitKyc(
-                userId, request, idDocument, proofOfAddress, selfie
-        );
-
-        return ResponseEntity.ok(
-                ApiResponse.success("KYC submitted for review", kyc)
-        );
+            @RequestPart("selfie") MultipartFile selfie
+    ) {
+        KycResponse kyc = kycService.submitKyc(userId, request, idDocument, proofOfAddress, selfie);
+        return ResponseEntity.ok(ApiResponse.success("KYC submitted for review", kyc));
     }
 
     @Operation(
             summary = "Get my KYC",
             description = "Retrieve the authenticated user's KYC details"
     )
-    @GetMapping
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<ApiResponse<KycResponse>> getMyKyc(
-            @Parameter(hidden = true) @CurrentUser UUID userId) {
-
+            @Parameter(hidden = true) @CurrentUser UUID userId
+    ) {
         KycResponse kyc = kycService.getUserKyc(userId);
         return ResponseEntity.ok(ApiResponse.success(kyc));
+    }
+    /** For landing pages / signup flow */
+    @Operation(
+            summary = "Get my KYC Documents requirements",
+            description = "Retrieve the list of KYC tiers and their document requirements"
+    )
+    @GetMapping(value = "/tiers",produces = MediaType.APPLICATION_JSON_VALUE)
+    public List<KycTierDto> getAllKycTiers() {
+        return kycTierService.getAllTiers();
+    }
+
+    /** For logged-in user dashboard */
+    @Operation(
+            summary = "Get my KYC levels",
+            description = "Retrieve the authenticated user's KYC details and levels"
+    )
+    @GetMapping(value = "/me",produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasRole('USER')")
+    public UserKycStatusResponse getMyKycStatus(
+            @Parameter(hidden = true) @CurrentUser UUID userId
+    ) {
+        return kycTierService.getUserKycStatus(userId);
     }
 }

@@ -5,15 +5,19 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.apache.kafka.common.config.SslConfigs;
 import org.apache.kafka.common.serialization.StringDeserializer;
+import org.fintech.wallet.dto.event.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.kafka.annotation.EnableKafka;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
 import org.springframework.kafka.listener.ContainerProperties;
 import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.kafka.support.mapping.DefaultJackson2JavaTypeMapper;
+import org.springframework.kafka.support.mapping.Jackson2JavaTypeMapper;
 import org.springframework.kafka.support.serializer.ErrorHandlingDeserializer;
 import org.springframework.kafka.support.serializer.JsonDeserializer;
 import org.springframework.util.backoff.FixedBackOff;
@@ -21,6 +25,7 @@ import org.springframework.util.backoff.FixedBackOff;
 import java.util.HashMap;
 import java.util.Map;
 
+@Profile("prod")
 @EnableKafka
 @Configuration
 public class KafkaConsumerConfig {
@@ -43,8 +48,90 @@ public class KafkaConsumerConfig {
     @Value("${spring.kafka.properties.ssl.truststore.password}")
     private String truststorePassword;
 
+
     @Bean
-    public ConsumerFactory<String, Object> consumerFactory() {
+    public ConsumerFactory<String, WalletEvent> walletEventConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(
+                consumerProps(),
+                new StringDeserializer(),
+                new JsonDeserializer<>(WalletEvent.class)
+        );
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, WalletEvent> walletEventKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, WalletEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(walletEventConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return factory;
+    }
+
+    @Bean
+    public ConsumerFactory<String, TransactionEvent> transactionEventConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(
+                consumerProps(),
+                new StringDeserializer(),
+                new JsonDeserializer<>(TransactionEvent.class)
+        );
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, TransactionEvent> transactionEventKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, TransactionEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(transactionEventConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return factory;
+    }
+    @Bean
+    public ConsumerFactory<String, KycEvent> kycEventConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(
+                consumerProps(),
+                new StringDeserializer(),
+                new JsonDeserializer<>(KycEvent.class)
+        );
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, KycEvent> kycEventKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, KycEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(kycEventConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return factory;
+    }
+    @Bean
+    public ConsumerFactory<String, FraudDetectionEvent> fraudDetectionEventConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(
+                consumerProps(),
+                new StringDeserializer(),
+                new JsonDeserializer<>(FraudDetectionEvent.class)
+        );
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, FraudDetectionEvent> fraudDetectionEventConcurrentKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, FraudDetectionEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(fraudDetectionEventConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return factory;
+    }
+    @Bean
+    public ConsumerFactory<String, AuditLogEvent> auditLogEventConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(
+                consumerProps(),
+                new StringDeserializer(),
+                new JsonDeserializer<>(AuditLogEvent.class)
+        );
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, AuditLogEvent> auditLogEventConcurrentKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, AuditLogEvent> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(auditLogEventConsumerFactory());
+        factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+        return factory;
+    }
+
+    private Map<String, Object> consumerProps() {
 
         Map<String, Object> props = new HashMap<>();
 
@@ -66,15 +153,6 @@ public class KafkaConsumerConfig {
         // Required by Aiven
         props.put(SslConfigs.SSL_ENDPOINT_IDENTIFICATION_ALGORITHM_CONFIG, "");
 
-        /* ------------------ Deserialization ------------------ */
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, ErrorHandlingDeserializer.class);
-        props.put(ErrorHandlingDeserializer.KEY_DESERIALIZER_CLASS, StringDeserializer.class);
-        props.put(ErrorHandlingDeserializer.VALUE_DESERIALIZER_CLASS, JsonDeserializer.class);
-
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "org.fintech.wallet.*");
-        props.put(JsonDeserializer.USE_TYPE_INFO_HEADERS, false);
-        props.put(JsonDeserializer.VALUE_DEFAULT_TYPE, Object.class.getName());
 
         /* ------------------ Consumer behavior ------------------ */
         props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -84,28 +162,11 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 15000);
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 5000);
 
-        return new DefaultKafkaConsumerFactory<>(props);
+        //package
+        props.put(JsonDeserializer.TRUSTED_PACKAGES, "org.fintech.wallet.dto.event");
+
+        return props;
     }
 
-    @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, Object>
-    kafkaListenerContainerFactory() {
 
-        ConcurrentKafkaListenerContainerFactory<String, Object> factory =
-                new ConcurrentKafkaListenerContainerFactory<>();
-
-        factory.setConsumerFactory(consumerFactory());
-        factory.setConcurrency(3);
-
-        factory.getContainerProperties()
-                .setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
-
-        factory.setCommonErrorHandler(
-                new DefaultErrorHandler(
-                        new FixedBackOff(2000L, 3)
-                )
-        );
-
-        return factory;
-    }
 }

@@ -3,6 +3,7 @@ package org.fintech.wallet.service.impl;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.fintech.wallet.domain.entity.User;
+import org.fintech.wallet.domain.enums.KycLevel;
 import org.fintech.wallet.domain.enums.KycStatus;
 import org.fintech.wallet.domain.enums.UserRole;
 import org.fintech.wallet.domain.enums.UserStatus;
@@ -14,17 +15,20 @@ import org.fintech.wallet.exception.UserAlreadyExistsException;
 import org.fintech.wallet.repository.UserRepository;
 import org.fintech.wallet.security.JwtTokenProvider;
 import org.fintech.wallet.service.AuthService;
+import org.fintech.wallet.service.FileStorageService;
+import org.fintech.wallet.service.NotificationService;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -37,10 +41,12 @@ public class AuthServiceImpl implements AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
     private final TokenBlacklistService tokenBlacklistService;
+    private final NotificationService notificationService;
+    private final FileStorageService fileStorageService;
 
     @Override
     @Transactional
-    public AuthResponse register(RegisterRequest request,  String userAgent) {
+    public AuthResponse register(RegisterRequest request,  String userAgent, String ipAddress) {
         log.info("Registering new user: {}", request.getEmail());
 
         // Check if user already exists
@@ -67,6 +73,7 @@ public class AuthServiceImpl implements AuthService {
                 .phoneNumber(request.getPhoneNumber())
                 .status(UserStatus.ACTIVE)
                 .kycStatus(KycStatus.NOT_STARTED)
+                .kycLevel(KycLevel.NONE)
                 .mfaEnabled(false)
                 .roles(roles)
                 .build();
@@ -86,6 +93,24 @@ public class AuthServiceImpl implements AuthService {
         tokenBlacklistService.storeUserSession(user.getId(), sessionId, userAgent);
         // Store refresh token in Redis (7 days)
         tokenBlacklistService.storeRefreshToken(user.getId(), sessionId, refreshToken, 7);
+
+        Map<String, Object> meta = new HashMap<>();
+        meta.put("ipAddress", ipAddress);
+        meta.put("userAgent", userAgent);
+        meta.put("sessionId", sessionId);
+
+        notificationService.sendNotification(
+                org.fintech.wallet.dto.request.SendNotificationRequest.builder()
+                        .userId(user.getId())
+                        .type(org.fintech.wallet.domain.enums.NotificationType.LOGIN_ATTEMPT)
+                        .title("New login detected")
+                        .message("New login from device: " + userAgent + " | IP: " + ipAddress)
+                        .referenceId(sessionId)
+                        .channel(org.fintech.wallet.domain.enums.NotificationChannel.IN_APP)
+                        .priority(org.fintech.wallet.domain.enums.NotificationPriority.HIGH)
+                        .metadata(meta)
+                        .build()
+        );
 
 
         return AuthResponse.builder()
@@ -131,6 +156,23 @@ public class AuthServiceImpl implements AuthService {
 
 
             log.info("User logged in successfully: {}", user.getEmail());
+            Map<String, Object> meta = new HashMap<>();
+            meta.put("ipAddress", ipAddress);
+            meta.put("userAgent", userAgent);
+            meta.put("sessionId", sessionId);
+
+            notificationService.sendNotification(
+                    org.fintech.wallet.dto.request.SendNotificationRequest.builder()
+                            .userId(user.getId())
+                            .type(org.fintech.wallet.domain.enums.NotificationType.LOGIN_ATTEMPT)
+                            .title("New login detected")
+                            .message("New login from device: " + userAgent + " | IP: " + ipAddress)
+                            .referenceId(sessionId)
+                            .channel(org.fintech.wallet.domain.enums.NotificationChannel.IN_APP)
+                            .priority(org.fintech.wallet.domain.enums.NotificationPriority.HIGH)
+                            .metadata(meta)
+                            .build()
+            );
 
             return AuthResponse.builder()
                     .accessToken(accessToken)
@@ -251,6 +293,7 @@ public class AuthServiceImpl implements AuthService {
         // For now, we'll generate a temporary password
         String tempPassword = generateTemporaryPassword();
         user.setPasswordHash(passwordEncoder.encode(tempPassword));
+
         userRepository.save(user);
 
         // Send email with temporary password
@@ -315,6 +358,37 @@ public class AuthServiceImpl implements AuthService {
     }
 
     @Override
+    @Transactional
+    public UserResponse updateProfileImage(UUID userId, MultipartFile image) {
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Keep old references
+        String oldPublicId = user.getProfileImagePublicId();
+        String oldResourceType = user.getProfileImageResourceType();
+
+        // Upload new image
+        FileStorageService.UploadResult upload =
+                fileStorageService.uploadProfileImage(userId, image);
+
+        // Update user
+        user.setProfileImageUrl(upload.secureUrl());
+        user.setProfileImagePublicId(upload.publicId());
+        user.setProfileImageResourceType(upload.resourceType());
+        userRepository.save(user);
+
+        // Delete old image AFTER successful commit
+        afterCommit(() -> {
+            if (oldPublicId != null && !oldPublicId.equals(upload.publicId())) {
+                fileStorageService.deleteByPublicId(oldPublicId, oldResourceType);
+            }
+        });
+
+        return mapToUserResponse(user);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser(UUID userId) {
         User user = userRepository.findById(userId)
@@ -363,6 +437,20 @@ public class AuthServiceImpl implements AuthService {
             throw new IllegalArgumentException("Password must contain at least one special character");
         }
     }
+    private void afterCommit(Runnable task) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            task.run();
+                        }
+                    }
+            );
+        } else {
+            task.run();
+        }
+    }
 
     private String generateTemporaryPassword() {
         return UUID.randomUUID().toString().substring(0, 12) + "Aa1!";
@@ -376,6 +464,7 @@ public class AuthServiceImpl implements AuthService {
                 .lastName(user.getLastName())
                 .phoneNumber(user.getPhoneNumber())
                 .status(user.getStatus())
+                .profileImageUrl(user.getProfileImageUrl())
                 .kycStatus(user.getKycStatus())
                 .mfaEnabled(user.getMfaEnabled())
                 .roles(user.getRoles())

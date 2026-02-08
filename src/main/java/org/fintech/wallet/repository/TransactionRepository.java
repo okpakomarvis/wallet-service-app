@@ -27,10 +27,21 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             "(t.sourceWallet.id = :walletId OR t.destinationWallet.id = :walletId) " +
             "ORDER BY t.createdAt DESC")
     Page<Transaction> findByWalletId(UUID walletId, Pageable pageable);
-
+//for transfer only
+    /**
+     *
     @Query("SELECT t FROM Transaction t WHERE " +
             "(t.sourceWallet.user.id = :userId OR t.destinationWallet.user.id = :userId) " +
             "ORDER BY t.createdAt DESC")
+    */
+    @Query("""
+    SELECT t
+    FROM Transaction t
+    WHERE t.user.id = :userId
+       OR t.sourceWallet.user.id = :userId
+       OR t.destinationWallet.user.id = :userId
+    ORDER BY t.createdAt DESC
+""")
     Page<Transaction> findByUserId(UUID userId, Pageable pageable);
 
     List<Transaction> findByStatusAndCreatedAtBefore(
@@ -107,6 +118,23 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             @Param("status") TransactionStatus status,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate,
+            Pageable pageable
+    );
+    @Query("SELECT SUM(t.amount) FROM Transaction t " +
+            "WHERE t.status = 'SUCCESS' AND t.sourceWallet.user.id = :userId " +
+            "AND t.createdAt >= :start AND t.createdAt < :end")
+    BigDecimal sumUserTransactionsByDateRange(UUID userId, LocalDateTime start, LocalDateTime end);
+
+    @Query("""
+    SELECT t
+    FROM Transaction t
+    WHERE
+          t.sourceWallet.id IN :walletIds
+       OR t.destinationWallet.id IN :walletIds
+    ORDER BY t.createdAt DESC
+""")
+    Page<Transaction> findAllWalletTransactions(
+            @Param("walletIds") List<UUID> walletIds,
             Pageable pageable
     );
 }
