@@ -23,6 +23,7 @@ target/
 docker-compose-local.yml
 docker-compose-dev.yml
 V1__init_database.sql
+src/main/resources/applicationOriginal.yml
 /certs/
 ./certs
 docker-compose.yml
