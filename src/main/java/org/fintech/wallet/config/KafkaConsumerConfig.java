@@ -163,7 +163,7 @@ public class KafkaConsumerConfig {
         props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 5000);
 
         //package
-        props.put(JsonDeserializer.TRUSTED_PACKAGES, "org.fintech.wallet.dto.event");
+        props.put(JsonDeserializer.TRUSTED_PACKAGES, "org.fintech.wallet.dto.*");
 
         return props;
     }
