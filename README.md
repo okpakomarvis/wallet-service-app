@@ -263,16 +263,10 @@ docker build -t wallet-service:latest .
 docker run -p 8080:8080 wallet-service:latest
 ```
 
-### Kubernetes Deployment
-```bash
-kubectl apply -f k8s/deployment.yml
-kubectl apply -f k8s/service.yml
-kubectl apply -f k8s/ingress.yml
-```
 
 ## 📝 License
 MIT License - see LICENSE file
 
 ## 👥 Support
-For issues and questions, please open a GitHub issue or contact support@yourcompany.com
+For issues and questions, please open a GitHub issue or contact me
 */
