@@ -52,9 +52,6 @@ public class KycController {
     public ResponseEntity<ApiResponse<KycResponse>> submitKyc(
             @Parameter(hidden = true) @CurrentUser UUID userId,
 
-            // Form fields
-            @ModelAttribute KycSubmissionRequest request,
-
             // Files
             @Parameter(
                     description = "Government issued ID document",
@@ -74,7 +71,7 @@ public class KycController {
             )
             @RequestPart("selfie") MultipartFile selfie
     ) {
-        KycResponse kyc = kycService.submitKyc(userId, request, idDocument, proofOfAddress, selfie);
+        KycResponse kyc = kycService.submitKyc(userId, idDocument, proofOfAddress, selfie);
         return ResponseEntity.ok(ApiResponse.success("KYC submitted for review", kyc));
     }
 

@@ -6,15 +6,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.fintech.wallet.domain.entity.Transaction;
 import org.fintech.wallet.domain.entity.User;
 import org.fintech.wallet.domain.entity.Wallet;
-import org.fintech.wallet.domain.enums.EntryType;
-import org.fintech.wallet.domain.enums.KycLevel;
-import org.fintech.wallet.domain.enums.TransactionStatus;
-import org.fintech.wallet.domain.enums.TransactionType;
+import org.fintech.wallet.domain.enums.*;
 import org.fintech.wallet.dto.event.TransactionEvent;
 import org.fintech.wallet.dto.request.LedgerEntryRequest;
 import org.fintech.wallet.dto.request.TransferRequest;
 import org.fintech.wallet.dto.response.TransactionResponse;
 import org.fintech.wallet.exception.InsufficientBalanceException;
+import org.fintech.wallet.exception.WalletAuthorizeException;
 import org.fintech.wallet.kafka.KafkaProducerService;
 import org.fintech.wallet.repository.TransactionRepository;
 import org.fintech.wallet.repository.WalletRepository;
@@ -55,6 +53,10 @@ public class TransactionServiceImpl implements TransactionService {
         log.info("Transfer amount: {}", request.getAmount());
         // Get wallets with pessimistic locking (prevents concurrent modifications)
         Wallet sourceWallet = walletService.getWalletByIdWithLock(request.getSourceWalletId());
+        WalletStatus status = sourceWallet.getStatus();
+        if (status != WalletStatus.ACTIVE) {
+            throw new WalletAuthorizeException("Wallet is "+status.name()+", cannot transfer funds");
+        }
         Wallet destinationWallet = walletService.getWalletByIdWithLock(
                 walletService.getWalletByNumberOnly(request.getDestinationWalletNumber()).getId()
         );
@@ -258,6 +260,10 @@ public class TransactionServiceImpl implements TransactionService {
     @Transactional(isolation = Isolation.SERIALIZABLE)
     public TransactionResponse withdraw(UUID walletId, BigDecimal amount, String bankAccount) {
         Wallet wallet = walletService.getWalletByIdWithLock(walletId);
+        WalletStatus status = wallet.getStatus();
+        if (status != WalletStatus.ACTIVE) {
+            throw new WalletAuthorizeException("Wallet is "+status.name()+", cannot transfer funds");
+        }
         KycLevel level = wallet.getUser().getKycLevel();
 
         if (!level.isUnlimited()) {
