@@ -59,7 +59,7 @@
 - Email notifications (ready)
 - SMS notifications (ready)
 - Push notifications (ready)
-- Real-time updates
+- Real-time updates (ready)
 
 ### ✅ Security
 - BCrypt password hashing
@@ -88,6 +88,7 @@
 - **Flyway** (Database migrations)
 - **JWT** (Authentication)
 - **Prometheus & Grafana** (Monitoring)
+- **Websocket**
 
 ## 🏗️ Architecture
 
@@ -144,7 +145,7 @@ docker-compose up -d
 ```bash
 export DB_USERNAME=walletuser
 export DB_PASSWORD=walletpass
-export REDIS_PASSWORD=redispass
+export REDIS_PASSWORD=redispass2
 export JWT_SECRET=your-super-secret-256-bit-key-minimum-32-characters-long
 export PAYSTACK_SECRET_KEY=sk_test_xxxxx
 export FLUTTERWAVE_SECRET_KEY=FLWSECK_TEST-xxxxx
@@ -264,9 +265,10 @@ docker run -p 8080:8080 wallet-service:latest
 ```
 
 
+
 ## 📝 License
 MIT License - see LICENSE file
 
 ## 👥 Support
-For issues and questions, please open a GitHub issue or contact me
+For issues and questions, please open a GitHub issue or contact private message me 
 */
