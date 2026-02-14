@@ -7,9 +7,12 @@ import org.fintech.wallet.domain.entity.User;
 import org.fintech.wallet.domain.enums.KycLevel;
 import org.fintech.wallet.domain.enums.KycStatus;
 import org.fintech.wallet.dto.event.KycEvent;
+import org.fintech.wallet.dto.request.AdminKycApprovalRequest;
 import org.fintech.wallet.dto.request.KycSubmissionRequest;
 import org.fintech.wallet.dto.response.KycResponse;
+import org.fintech.wallet.dto.response.KycVerificationResponse;
 import org.fintech.wallet.exception.KycRequiredException;
+import org.fintech.wallet.exception.UserNotFoundException;
 import org.fintech.wallet.kafka.KafkaProducerService;
 import org.fintech.wallet.repository.KycRepository;
 import org.fintech.wallet.repository.UserRepository;
@@ -38,25 +41,24 @@ public class KycServiceImpl implements KycService {
 
     @Override
     @Transactional
-    public KycResponse submitKyc(
-            UUID userId,
-            KycSubmissionRequest request,
-            MultipartFile idDocument,
-            MultipartFile proofOfAddress,
-            MultipartFile selfie
-    ) {
-        log.info("KYC submission: user={}, level={}", userId, request.getLevel());
+    public KycResponse submitKyc(UUID userId,
+                                 MultipartFile idDocument,
+                                 MultipartFile proofOfAddress,
+                                 MultipartFile selfie)  {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
 
-        if (request.getLevel() == null || request.getLevel() == KycLevel.NONE) {
-            throw new IllegalArgumentException("Invalid KYC level");
+        // fullname from signup
+        String fullName = user.getFirstName() + " " + user.getLastName();
+
+        //  Determine next KYC level
+        KycLevel level = getNextKycLevelForUser(user);
+        if (level == null) {
+            throw new KycRequiredException("User has already completed full KYC verification");
         }
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("User not found"));
-
-        // One KYC per level per user
-        if (kycRepository.existsByUserIdAndLevel(userId, request.getLevel())) {
-            throw new IllegalStateException("KYC already submitted for this level");
+        if (kycRepository.existsByUserIdAndLevel(userId, level)) {
+            throw new KycRequiredException("KYC already submitted for this level");
         }
 
         // Upload documents
@@ -70,19 +72,9 @@ public class KycServiceImpl implements KycService {
         try {
             KycVerification kyc = KycVerification.builder()
                     .user(user)
-                    .level(request.getLevel())
+                    .level(level)
                     .status(KycStatus.PENDING)
-                    .fullName(request.getFullName())
-                    .idType(request.getIdType())
-                    .idNumber(request.getIdNumber())
-                    .dateOfBirth(request.getDateOfBirth())
-                    .nationality(request.getNationality())
-                    .address(request.getAddress())
-                    .city(request.getCity())
-                    .state(request.getState())
-                    .postalCode(request.getPostalCode())
-                    .country(request.getCountry())
-
+                    .fullName(fullName)
                     // URLs
                     .idDocumentUrl(idUp.secureUrl())
                     .proofOfAddressUrl(addrUp.secureUrl())
@@ -112,32 +104,82 @@ public class KycServiceImpl implements KycService {
     }
     @Override
     @Transactional
-    public KycResponse approveKyc(UUID kycId, UUID adminId) {
+    public KycResponse approveKyc(UUID kycId,
+                                  UUID adminId,
+                                  AdminKycApprovalRequest request) {
 
         KycVerification kyc = kycRepository.findById(kycId)
-                .orElseThrow(() -> new RuntimeException("KYC not found"));
+                .orElseThrow(() -> new KycRequiredException("KYC not found"));
+
+        User user = kyc.getUser();
+
+        // 🔥 Determine user's current level
+        KycLevel currentLevel = user.getKycLevel() == null
+                ? KycLevel.NONE
+                : user.getKycLevel();
+
+        // 🔥 Determine expected next level
+        KycLevel expectedNextLevel = getNextLevel(currentLevel);
+
+        if (expectedNextLevel == null) {
+            throw new KycRequiredException("User has already completed full KYC verification");
+        }
+
+        // 🔥 Ensure admin is approving the correct next level
+        if (kyc.getLevel() != expectedNextLevel) {
+            throw new KycRequiredException(
+                    "Invalid tier approval. Expected: " + expectedNextLevel);
+        }
 
         if (kyc.getStatus() == KycStatus.VERIFIED) {
             return mapToResponse(kyc);
         }
 
+        //  Approve KYC
         kyc.setStatus(KycStatus.VERIFIED);
         kyc.setVerifiedAt(LocalDateTime.now());
         kyc.setReviewedBy(adminId);
         kyc.setReviewedAt(LocalDateTime.now());
+
+        // 🔥 Update only non-empty admin fields
+        if (request.getIdType() != null) {
+            kyc.setIdType(request.getIdType());
+        }
+
+        if (request.getNationality() != null && !request.getNationality().isBlank()) {
+            kyc.setNationality(request.getNationality());
+        }
+
+        if (request.getIdNumber() != null && !request.getIdNumber().isBlank()) {
+            kyc.setIdNumber(request.getIdNumber());
+        }
+
+        if (request.getAddress() != null && !request.getAddress().isBlank()) {
+            kyc.setAddress(request.getAddress());
+        }
+
+        if (request.getCountry() != null && !request.getCountry().isBlank()) {
+            kyc.setCountry(request.getCountry());
+        }
+
+        if (request.getDateOfBirth() != null) {
+            kyc.setDateOfBirth(request.getDateOfBirth());
+        }
+
         kycRepository.save(kyc);
 
-        // Update user's highest verified tier
-        User user = kyc.getUser();
-        KycLevel highestLevel = kycRepository
-                .findHighestVerifiedLevel(user.getId())
-                .orElse(KycLevel.NONE);
+        //  Move user to the next level
+        user.setKycLevel(expectedNextLevel);
 
-        user.setKycLevel(highestLevel);
-        user.setKycStatus(KycStatus.VERIFIED);
+        // Only set VERIFIED if max tier reached
+        if (getNextLevel(expectedNextLevel) == null) {
+            user.setKycStatus(KycStatus.VERIFIED);
+        }
+
         userRepository.save(user);
 
         publishKycEvent(kyc, "APPROVED", adminId);
+
         return mapToResponse(kyc);
     }
     @Override
@@ -167,9 +209,27 @@ public class KycServiceImpl implements KycService {
     }
 
     @Transactional(readOnly = true)
-    public Page<KycResponse> getPendingKyc(Pageable pageable) {
+    public Page<KycVerificationResponse> getPendingKyc(Pageable pageable) {
         return kycRepository.findByStatus(KycStatus.PENDING, pageable)
-                .map(this::mapToResponse);
+                .map(this::mapToResponseAdmin);
+    }
+    private KycLevel getNextKycLevelForUser(User user) {
+        KycLevel current = user.getKycLevel() == null ? KycLevel.NONE : user.getKycLevel();
+
+        return switch (current) {
+            case NONE -> KycLevel.TIER_1;
+            case TIER_1 -> KycLevel.TIER_2;
+            case TIER_2 -> KycLevel.TIER_3;
+            case TIER_3 -> null; // max KYC reached
+        };
+    }
+    private KycLevel getNextLevel(KycLevel current) {
+        return switch (current) {
+            case NONE -> KycLevel.TIER_1;
+            case TIER_1 -> KycLevel.TIER_2;
+            case TIER_2 -> KycLevel.TIER_3;
+            case TIER_3 -> null; // max reached
+        };
     }
 
     private void publishKycEvent(KycVerification kyc, String action, UUID adminId) {
@@ -202,6 +262,52 @@ public class KycServiceImpl implements KycService {
                 .verifiedAt(kyc.getVerifiedAt())
                 .rejectionReason(kyc.getRejectionReason())
                 .createdAt(kyc.getCreatedAt())
+                .build();
+    }
+    private KycVerificationResponse mapToResponseAdmin(KycVerification kyc) {
+
+        return KycVerificationResponse.builder()
+                .id(kyc.getId())
+
+                // User (flattened)
+                .userId(kyc.getUser().getId())
+                .userEmail(kyc.getUser().getEmail())
+
+                // KYC Status
+                .level(kyc.getLevel() != null ? kyc.getLevel().name() : null)
+                .status(kyc.getStatus() != null ? kyc.getStatus().name() : null)
+
+                // Personal Info
+                .fullName(kyc.getFullName())
+                .idType(kyc.getIdType())
+                .idNumber(kyc.getIdNumber())
+                .dateOfBirth(kyc.getDateOfBirth())
+                .nationality(kyc.getNationality())
+
+                // Address
+                .address(kyc.getAddress())
+                .city(kyc.getCity())
+                .state(kyc.getState())
+                .postalCode(kyc.getPostalCode())
+                .country(kyc.getCountry())
+
+                // Documents
+                .idDocumentUrl(kyc.getIdDocumentUrl())
+                .proofOfAddressUrl(kyc.getProofOfAddressUrl())
+                .selfieUrl(kyc.getSelfieUrl())
+
+                // Verification
+                .verificationProvider(kyc.getVerificationProvider())
+                .externalVerificationId(kyc.getExternalVerificationId())
+                .verifiedAt(kyc.getVerifiedAt())
+                .rejectionReason(kyc.getRejectionReason())
+                .reviewedBy(kyc.getReviewedBy())
+                .reviewedAt(kyc.getReviewedAt())
+
+                // Audit
+                .createdAt(kyc.getCreatedAt())
+                .updatedAt(kyc.getUpdatedAt())
+
                 .build();
     }
 

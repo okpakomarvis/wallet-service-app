@@ -7,6 +7,7 @@ import org.fintech.wallet.domain.enums.TransactionStatus;
 import org.fintech.wallet.domain.enums.TransactionType;
 import org.fintech.wallet.domain.enums.UserStatus;
 import org.fintech.wallet.dto.request.AdminActionRequest;
+import org.fintech.wallet.dto.request.AdminKycApprovalRequest;
 import org.fintech.wallet.dto.request.KycReviewRequest;
 import org.fintech.wallet.dto.response.*;
 import org.fintech.wallet.security.CurrentUser;
@@ -236,9 +237,9 @@ public class AdminController {
             description = "Retrieve all pending KYC requests"
     )
     @GetMapping("/kyc/pending")
-    public ResponseEntity<org.fintech.wallet.dto.response.ApiResponse<Page<KycResponse>>> getPendingKyc(
+    public ResponseEntity<org.fintech.wallet.dto.response.ApiResponse<Page<KycVerificationResponse>>> getPendingKyc(
             @Parameter(hidden = true) Pageable pageable) {
-        Page<KycResponse> kyc = kycService.getPendingKyc(pageable);
+        Page<KycVerificationResponse> kyc = kycService.getPendingKyc(pageable);
         return ResponseEntity.ok(org.fintech.wallet.dto.response.ApiResponse.success(kyc));
     }
 
@@ -247,12 +248,13 @@ public class AdminController {
             description = "Approve a KYC request"
     )
     @PutMapping("/kyc/{kycId}/approve")
-    public ResponseEntity<org.fintech.wallet.dto.response.ApiResponse<KycResponse>> approveKyc(
-            @Parameter(description = "KYC ID") @PathVariable UUID kycId,
-            @Parameter(hidden = true) @CurrentUser UUID adminId) {
+    public ResponseEntity<ApiResponse<KycResponse>> approveKyc(
+            @PathVariable UUID kycId,
+            @CurrentUser UUID adminId,
+            @RequestBody AdminKycApprovalRequest request) {
 
-        KycResponse kyc = kycService.approveKyc(kycId, adminId);
-        return ResponseEntity.ok(org.fintech.wallet.dto.response.ApiResponse.success("KYC approved successfully", kyc));
+        KycResponse kyc = kycService.approveKyc(kycId, adminId, request);
+        return ResponseEntity.ok(ApiResponse.success("KYC approved successfully", kyc));
     }
 
     @Operation(

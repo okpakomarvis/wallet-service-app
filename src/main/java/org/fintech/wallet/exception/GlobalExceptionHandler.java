@@ -109,7 +109,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleWalletAuthorize(WalletAuthorizeException ex) {
         log.error("Wallet Authorize Exception: {}", ex.getMessage());
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error("Wallet UnAuthorize"));
+                .body(ApiResponse.error(ex.getMessage()));
     }
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException ex) {
